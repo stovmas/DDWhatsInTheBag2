@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { scenarios, calculatePersonality, communityData, personalityTypes, CATEGORIES } from './gameData';
+import { scenarios, calculatePersonality, communityData, CATEGORIES } from './gameData';
 import './App.css';
 
-// ─── Screens ───
 const SCREEN = {
   LANDING: 'landing',
   GAME: 'game',
@@ -12,7 +11,7 @@ const SCREEN = {
   RESULTS: 'results',
 };
 
-// ─── DoorDash-style bag icon ───
+// ─── DoorDash bag icon ───
 function BagIcon({ size = 40 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
@@ -24,7 +23,17 @@ function BagIcon({ size = 40 }) {
   );
 }
 
-// ─── Progress bar (DoorDash delivery style) ───
+// ─── Star rating display ───
+function Stars({ rating }) {
+  return (
+    <span className="stars">
+      <span className="star-fill">★</span>
+      <span className="star-num">{rating}</span>
+    </span>
+  );
+}
+
+// ─── Progress bar ───
 function ProgressBar({ current, total }) {
   const pct = ((current + 1) / total) * 100;
   return (
@@ -39,7 +48,7 @@ function ProgressBar({ current, total }) {
       </div>
       <div className="progress-dots">
         {Array.from({ length: total }).map((_, i) => (
-          <div key={i} className={`progress-dot ${i <= current ? 'active' : ''}`}>
+          <div key={i} className={`progress-dot ${i < current ? 'done' : ''} ${i === current ? 'active' : ''}`}>
             {i < current ? '✓' : i + 1}
           </div>
         ))}
@@ -48,29 +57,88 @@ function ProgressBar({ current, total }) {
   );
 }
 
-// ─── Item Card ───
+// ─── Budget Meter ───
+function BudgetMeter({ budget, spent }) {
+  const remaining = budget - spent;
+  const pct = Math.min((spent / budget) * 100, 100);
+  const isOver = remaining < 0;
+  const isLow = remaining >= 0 && remaining < budget * 0.2;
+
+  return (
+    <div className={`budget-meter ${isOver ? 'over' : ''} ${isLow ? 'low' : ''}`}>
+      <div className="budget-header">
+        <span className="budget-label">Budget</span>
+        <span className="budget-remaining">
+          ${remaining.toFixed(2)} left
+        </span>
+      </div>
+      <div className="budget-track">
+        <motion.div
+          className="budget-fill"
+          animate={{ width: `${pct}%` }}
+          transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+        />
+      </div>
+      <div className="budget-amounts">
+        <span className="budget-spent">${spent.toFixed(2)} spent</span>
+        <span className="budget-total">${budget.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Item Card (DoorDash style) ───
 function ItemCard({ item, selected, onToggle, disabled }) {
-  const isSelected = selected;
+  const categoryColors = {
+    food: '#FF6B35',
+    alcohol: '#9B5DE5',
+    grocery: '#06D6A0',
+    household: '#457B9D',
+    dessert: '#FF006E',
+  };
+
   return (
     <motion.button
-      className={`item-card ${isSelected ? 'selected' : ''} ${disabled && !isSelected ? 'disabled' : ''}`}
+      className={`item-card ${selected ? 'selected' : ''} ${disabled && !selected ? 'disabled' : ''}`}
       onClick={() => onToggle(item)}
-      whileHover={!disabled || isSelected ? { scale: 1.03 } : {}}
-      whileTap={!disabled || isSelected ? { scale: 0.97 } : {}}
+      whileHover={!disabled || selected ? { y: -2 } : {}}
+      whileTap={!disabled || selected ? { scale: 0.98 } : {}}
       layout
     >
-      <span className="item-emoji">{item.emoji}</span>
-      <span className="item-name">{item.name}</span>
-      <span className={`item-badge ${item.category}`}>{item.category}</span>
-      {isSelected && (
+      {selected && (
         <motion.div
-          className="check-mark"
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
+          className="card-check"
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: 1, rotate: 0 }}
           exit={{ scale: 0 }}
         >
           ✓
         </motion.div>
+      )}
+
+      <div className="card-emoji-area">
+        <span className="card-emoji">{item.emoji}</span>
+      </div>
+
+      <div className="card-info">
+        <span className="card-store">{item.store}</span>
+        <span className="card-name">{item.name}</span>
+        <div className="card-meta">
+          <Stars rating={item.rating} />
+          <span className="card-dot">·</span>
+          <span className="card-time">{item.time}</span>
+        </div>
+      </div>
+
+      <div className="card-bottom">
+        <span className="card-price">${item.price.toFixed(2)}</span>
+        <span className="card-category" style={{ background: `${categoryColors[item.category]}18`, color: categoryColors[item.category] }}>
+          {item.category}
+        </span>
+      </div>
+
+      {disabled && !selected && (
+        <div className="card-disabled-overlay" />
       )}
     </motion.button>
   );
@@ -97,15 +165,31 @@ function LandingScreen({ onStart }) {
           What's In <span className="accent">The Bag</span>?
         </h1>
         <p className="landing-subtitle">
-          5 scenarios. 3 picks each. We'll reveal your DoorDash ordering personality.
+          5 scenarios. Limited budget. We'll reveal your DoorDash ordering personality.
         </p>
+
+        <div className="landing-how-it-works">
+          <div className="how-step">
+            <span className="how-num">1</span>
+            <span>Read the situation</span>
+          </div>
+          <div className="how-step">
+            <span className="how-num">2</span>
+            <span>Fill your bag under budget</span>
+          </div>
+          <div className="how-step">
+            <span className="how-num">3</span>
+            <span>Get your ordering personality</span>
+          </div>
+        </div>
+
         <motion.button
           className="btn-primary"
           onClick={onStart}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
-          Build My Bag →
+          Start Ordering →
         </motion.button>
         <p className="landing-hint">Takes about 2 minutes</p>
       </div>
@@ -121,7 +205,7 @@ function LandingScreen({ onStart }) {
             animate={{
               y: [0, -20, 0],
               rotate: [0, i % 2 === 0 ? 10 : -10, 0],
-              opacity: [0.15, 0.3, 0.15],
+              opacity: [0.12, 0.25, 0.12],
             }}
             transition={{
               duration: 3 + (i * 0.3),
@@ -140,23 +224,27 @@ function LandingScreen({ onStart }) {
 // ─── Game Screen ───
 function GameScreen({ onComplete }) {
   const [round, setRound] = useState(0);
-  const [selections, setSelections] = useState([]); // per-round selections
-  const [allSelections, setAllSelections] = useState([]); // all items across rounds
+  const [selections, setSelections] = useState([]);
+  const [allSelections, setAllSelections] = useState([]);
 
   const scenario = scenarios[round];
-  const maxPicks = 3;
+  const spent = useMemo(() => selections.reduce((s, item) => s + item.price, 0), [selections]);
+  const remaining = scenario.budget - spent;
 
   const toggleItem = useCallback((item) => {
     setSelections(prev => {
       if (prev.find(s => s.id === item.id)) {
         return prev.filter(s => s.id !== item.id);
       }
-      if (prev.length >= maxPicks) return prev;
+      // Check budget
+      const currentSpent = prev.reduce((s, i) => s + i.price, 0);
+      if (currentSpent + item.price > scenario.budget) return prev;
       return [...prev, item];
     });
-  }, []);
+  }, [scenario.budget]);
 
   const handleNext = () => {
+    if (selections.length === 0) return;
     const newAll = [...allSelections, ...selections];
     if (round < scenarios.length - 1) {
       setAllSelections(newAll);
@@ -165,6 +253,11 @@ function GameScreen({ onComplete }) {
     } else {
       onComplete(newAll);
     }
+  };
+
+  const canAfford = (item) => {
+    if (selections.find(s => s.id === item.id)) return true;
+    return spent + item.price <= scenario.budget;
   };
 
   return (
@@ -189,10 +282,16 @@ function GameScreen({ onComplete }) {
             <span className="scenario-emoji">{scenario.emoji}</span>
             <h2 className="scenario-title">{scenario.situation}</h2>
             <p className="scenario-subtitle">{scenario.subtitle}</p>
-            <p className="pick-counter">
-              <BagIcon size={20} />
-              <span>{selections.length} / {maxPicks} in the bag</span>
-            </p>
+          </div>
+
+          <BudgetMeter budget={scenario.budget} spent={spent} />
+
+          <div className="bag-summary-bar">
+            <BagIcon size={18} />
+            <span>{selections.length} item{selections.length !== 1 ? 's' : ''} in bag</span>
+            {selections.length > 0 && (
+              <span className="bag-summary-total">${spent.toFixed(2)}</span>
+            )}
           </div>
 
           <div className="items-grid">
@@ -202,27 +301,54 @@ function GameScreen({ onComplete }) {
                 item={item}
                 selected={!!selections.find(s => s.id === item.id)}
                 onToggle={toggleItem}
-                disabled={selections.length >= maxPicks}
+                disabled={!canAfford(item)}
               />
             ))}
           </div>
         </motion.div>
       </AnimatePresence>
 
-      <motion.button
-        className={`btn-primary btn-next ${selections.length === maxPicks ? 'ready' : ''}`}
-        onClick={handleNext}
-        disabled={selections.length < maxPicks}
-        whileHover={selections.length === maxPicks ? { scale: 1.03 } : {}}
-        whileTap={selections.length === maxPicks ? { scale: 0.97 } : {}}
-      >
-        {round < scenarios.length - 1 ? 'Next Scenario →' : 'Reveal My Type! 🎉'}
-      </motion.button>
+      <div className="bottom-bar">
+        {selections.length > 0 && (
+          <motion.div
+            className="selected-preview"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            {selections.map(s => (
+              <motion.span
+                key={s.id}
+                className="selected-pill"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0 }}
+              >
+                {s.emoji} ${s.price.toFixed(2)}
+              </motion.span>
+            ))}
+          </motion.div>
+        )}
+
+        <motion.button
+          className={`btn-primary btn-next ${selections.length > 0 ? 'ready' : ''}`}
+          onClick={handleNext}
+          disabled={selections.length === 0}
+          whileHover={selections.length > 0 ? { scale: 1.03 } : {}}
+          whileTap={selections.length > 0 ? { scale: 0.97 } : {}}
+        >
+          {selections.length === 0
+            ? 'Add items to continue'
+            : round < scenarios.length - 1
+              ? `Checkout & Next (${selections.length} items) →`
+              : `Reveal My Type! 🎉`
+          }
+        </motion.button>
+      </div>
     </motion.div>
   );
 }
 
-// ─── Bag Reveal Animation ───
+// ─── Reveal Screen ───
 function RevealScreen({ onDone }) {
   useEffect(() => {
     const timer = setTimeout(onDone, 2800);
@@ -252,7 +378,7 @@ function RevealScreen({ onDone }) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
       >
-        Peeking inside your bag...
+        Checking your receipts...
       </motion.h2>
       <div className="reveal-dots">
         {[0, 1, 2].map(i => (
@@ -279,7 +405,7 @@ function ScoreBar({ label, emoji, value, max, color }) {
           className="score-fill"
           style={{ backgroundColor: color }}
           initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
+          animate={{ width: `${Math.max(pct, 4)}%` }}
           transition={{ duration: 0.8, delay: 0.2 }}
         />
       </div>
@@ -288,14 +414,32 @@ function ScoreBar({ label, emoji, value, max, color }) {
   );
 }
 
+// ─── Receipt Item ───
+function ReceiptItem({ item, index }) {
+  return (
+    <motion.div
+      className="receipt-item"
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: 1.0 + index * 0.04 }}
+    >
+      <span className="receipt-emoji">{item.emoji}</span>
+      <div className="receipt-detail">
+        <span className="receipt-name">{item.name}</span>
+        <span className="receipt-store">{item.store}</span>
+      </div>
+      <span className="receipt-price">${item.price.toFixed(2)}</span>
+    </motion.div>
+  );
+}
+
 // ─── Results Screen ───
 function ResultsScreen({ allSelections, onRestart }) {
   const result = calculatePersonality(allSelections);
-  const { primary, secondary, scores } = result;
+  const { primary, secondary, scores, totalSpent } = result;
   const maxScore = Math.max(...Object.values(scores), 1);
 
   useEffect(() => {
-    // Fire confetti
     confetti({
       particleCount: 100,
       spread: 70,
@@ -303,20 +447,8 @@ function ResultsScreen({ allSelections, onRestart }) {
       colors: ['#FF3008', '#FF6B35', '#FFB347', '#FF006E', '#9B5DE5'],
     });
     const t = setTimeout(() => {
-      confetti({
-        particleCount: 50,
-        angle: 60,
-        spread: 55,
-        origin: { x: 0 },
-        colors: ['#FF3008', '#FF6B35'],
-      });
-      confetti({
-        particleCount: 50,
-        angle: 120,
-        spread: 55,
-        origin: { x: 1 },
-        colors: ['#FF3008', '#FF6B35'],
-      });
+      confetti({ particleCount: 50, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#FF3008', '#FF6B35'] });
+      confetti({ particleCount: 50, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#FF3008', '#FF6B35'] });
     }, 600);
     return () => clearTimeout(t);
   }, []);
@@ -330,7 +462,6 @@ function ResultsScreen({ allSelections, onRestart }) {
     { key: CATEGORIES.HEALTH, label: 'Health', emoji: '🥑', color: '#06D6A0' },
   ];
 
-  // Count what % of community matched
   const matchCount = allSelections.reduce((count, sel) => {
     const cd = communityData.find(c => {
       const scenario = scenarios.find(s => s.items.some(i => i.id === sel.id));
@@ -348,16 +479,17 @@ function ResultsScreen({ allSelections, onRestart }) {
       animate={{ opacity: 1 }}
     >
       <div className="results-card">
+        {/* Hero type card */}
         <motion.div
           className="result-type-header"
-          style={{ background: `linear-gradient(135deg, ${primary.color}22, ${primary.color}44)` }}
+          style={{ background: primary.gradient }}
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.5, type: 'spring' }}
         >
           <span className="result-emoji">{primary.emoji}</span>
           <h1 className="result-title">{primary.title}</h1>
-          <span className="result-badge" style={{ background: primary.color }}>
+          <span className="result-badge">
             {primary.badge}
           </span>
         </motion.div>
@@ -371,6 +503,7 @@ function ResultsScreen({ allSelections, onRestart }) {
           {primary.description}
         </motion.p>
 
+        {/* Stats */}
         <motion.div
           className="result-stats"
           initial={{ opacity: 0, y: 20 }}
@@ -386,11 +519,12 @@ function ResultsScreen({ allSelections, onRestart }) {
             <span className="stat-value">{primary.stats.avgOrderTime}</span>
           </div>
           <div className="stat">
-            <span className="stat-label">Go-To Pick</span>
-            <span className="stat-value">{primary.stats.topItem}</span>
+            <span className="stat-label">Total Spent</span>
+            <span className="stat-value">${totalSpent.toFixed(2)}</span>
           </div>
         </motion.div>
 
+        {/* Secondary type */}
         <motion.div
           className="result-secondary"
           initial={{ opacity: 0 }}
@@ -398,11 +532,10 @@ function ResultsScreen({ allSelections, onRestart }) {
           transition={{ delay: 0.6 }}
         >
           <p className="secondary-label">With a hint of...</p>
-          <span className="secondary-type">
-            {secondary.emoji} {secondary.title}
-          </span>
+          <span className="secondary-type">{secondary.emoji} {secondary.title}</span>
         </motion.div>
 
+        {/* DNA Breakdown */}
         <motion.div
           className="score-breakdown"
           initial={{ opacity: 0, y: 20 }}
@@ -411,24 +544,18 @@ function ResultsScreen({ allSelections, onRestart }) {
         >
           <h3>Your Ordering DNA</h3>
           {scoreEntries.map(({ key, label, emoji, color }) => (
-            <ScoreBar
-              key={key}
-              label={label}
-              emoji={emoji}
-              value={scores[key]}
-              max={maxScore}
-              color={color}
-            />
+            <ScoreBar key={key} label={label} emoji={emoji} value={scores[key]} max={maxScore} color={color} />
           ))}
         </motion.div>
 
+        {/* Community */}
         <motion.div
           className="community-compare"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.9 }}
         >
-          <h3>🛍️ How Others Built Their Bag</h3>
+          <h3>How Others Built Their Bag</h3>
           <div className="community-match">
             <div className="match-ring" style={{ background: `conic-gradient(#FF3008 ${matchPct}%, #eee ${matchPct}%)` }}>
               <span>{matchPct}%</span>
@@ -442,8 +569,10 @@ function ResultsScreen({ allSelections, onRestart }) {
                 <div key={cd.scenarioId} className="community-row">
                   <span className="community-emoji">{sc.emoji}</span>
                   <div className="community-picks">
-                    <span className="community-scene">{sc.situation.substring(0, 40)}...</span>
-                    <span className="community-top">Most popular: {cd.topPicks[0]} ({cd.percent}% picked it)</span>
+                    <span className="community-scene">{sc.situation.substring(0, 45)}...</span>
+                    <span className="community-top">
+                      Most ordered: <strong>{cd.topPicks[0]}</strong> · Avg spent: ${cd.avgSpent.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               );
@@ -451,26 +580,22 @@ function ResultsScreen({ allSelections, onRestart }) {
           </div>
         </motion.div>
 
+        {/* Full Receipt */}
         <motion.div
-          className="your-bag"
+          className="your-receipt"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.1 }}
         >
-          <h3>Your Complete Bag</h3>
-          <div className="bag-items">
+          <h3>Your Full Receipt</h3>
+          <div className="receipt-list">
             {allSelections.map((item, i) => (
-              <motion.div
-                key={item.id}
-                className="bag-item"
-                initial={{ opacity: 0, scale: 0.5 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 1.2 + i * 0.05 }}
-              >
-                <span className="bag-item-emoji">{item.emoji}</span>
-                <span className="bag-item-name">{item.name}</span>
-              </motion.div>
+              <ReceiptItem key={item.id} item={item} index={i} />
             ))}
+          </div>
+          <div className="receipt-total">
+            <span>Total ({allSelections.length} items)</span>
+            <span>${totalSpent.toFixed(2)}</span>
           </div>
         </motion.div>
 
@@ -481,7 +606,7 @@ function ResultsScreen({ allSelections, onRestart }) {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            Play Again 🔄
+            Play Again
           </motion.button>
         </div>
       </div>
@@ -522,22 +647,10 @@ function App() {
 
       <main className="app-main">
         <AnimatePresence mode="wait">
-          {screen === SCREEN.LANDING && (
-            <LandingScreen key="landing" onStart={handleStart} />
-          )}
-          {screen === SCREEN.GAME && (
-            <GameScreen key="game" onComplete={handleComplete} />
-          )}
-          {screen === SCREEN.REVEAL && (
-            <RevealScreen key="reveal" onDone={handleRevealDone} />
-          )}
-          {screen === SCREEN.RESULTS && (
-            <ResultsScreen
-              key="results"
-              allSelections={allSelections}
-              onRestart={handleRestart}
-            />
-          )}
+          {screen === SCREEN.LANDING && <LandingScreen key="landing" onStart={handleStart} />}
+          {screen === SCREEN.GAME && <GameScreen key="game" onComplete={handleComplete} />}
+          {screen === SCREEN.REVEAL && <RevealScreen key="reveal" onDone={handleRevealDone} />}
+          {screen === SCREEN.RESULTS && <ResultsScreen key="results" allSelections={allSelections} onRestart={handleRestart} />}
         </AnimatePresence>
       </main>
     </div>
